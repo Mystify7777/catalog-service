@@ -8,8 +8,8 @@ supports full CRUD, searching by name, and a dedicated stock-adjustment
 endpoint that enforces "stock can never go negative" as a hard business rule.
 
 This is a real Spring Boot app, not a toy: layered architecture (controller →
-service → repository), Bean Validation on every input, a transactional
-stock-adjustment path, seed data, and a test suite. The domain is
+service → repository), Bean Validation on every input, transactional
+stock-adjustment paths, seed data, and a test suite. The domain is
 intentionally shallow so a newcomer can understand the whole codebase and
 ship a meaningful PR within a day — see [CONTRIBUTING.md](CONTRIBUTING.md)
 for how to claim an issue.
@@ -76,6 +76,7 @@ Base path: `/api/products`
 | PUT    | `/api/products/{id}`     | Replace a product's fields                     |
 | DELETE | `/api/products/{id}`     | Delete a product                               |
 | PATCH  | `/api/products/{id}/stock` | Adjust stock by a signed delta (`{"delta": -3}`); rejected with `422` if it would go below zero |
+| PATCH  | `/api/products/stock/bulk` | Apply multiple stock adjustments atomically; rejected with `422` if any adjustment would make stock negative |
 
 Health check: `GET /actuator/health` (Spring Boot Actuator).
 
@@ -100,12 +101,49 @@ errors all return a consistent JSON error body (see
 `GlobalExceptionHandler`) with an appropriate HTTP status (`400`, `404`,
 `409`, `422`).
 
+### Example: bulk stock adjustment
+
+Bulk stock adjustments accept a list of product IDs and signed stock deltas:
+
+```bash
+curl -X PATCH http://localhost:8080/api/products/stock/bulk \
+  -H "Content-Type: application/json" \
+  -d '[
+    {"productId": 1, "delta": 5},
+    {"productId": 2, "delta": -3}
+  ]'
+```
+
+Bulk adjustments use all-or-nothing transaction semantics. The entire
+batch is validated before any stock quantity is changed. If any product does
+not exist or any adjustment would result in negative stock, the entire batch
+is rejected and no stock changes are persisted.
+
+For example, if a batch contains:
+
+```
+Product 1: +5
+Product 2: -11
+```
+
+and Product 2 only has 10 units in stock, the request returns `422 Unprocessable Entity`
+and Product 1's `+5` adjustment is also rolled back.
+
+A product may appear more than once in the same batch. Adjustments are applied
+sequentially to the projected stock quantity, while the batch remains atomic.
+
+Bulk requests must contain at least one adjustment, and each adjustment
+requires both `productId` and `delta`.
+
+Validation failures return `400 Bad Request`. Missing products return
+`404 Not Found`, and insufficient stock returns `422 Unprocessable Entity`.
+
 ## Project layout
 
 ```
 src/main/java/com/nhcarrigan/catalogservice/
   entity/       JPA entities (Product)
-  dto/          Request payloads (ProductRequest, StockAdjustmentRequest)
+  dto/          Request payloads
   repository/   Spring Data JPA repositories
   service/      Business logic (ProductService)
   controller/   REST controllers

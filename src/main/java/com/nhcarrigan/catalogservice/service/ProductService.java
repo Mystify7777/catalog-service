@@ -1,6 +1,7 @@
 package com.nhcarrigan.catalogservice.service;
 
 import com.nhcarrigan.catalogservice.dto.ProductRequest;
+import com.nhcarrigan.catalogservice.dto.BulkStockAdjustmentRequest;
 import com.nhcarrigan.catalogservice.entity.Product;
 import com.nhcarrigan.catalogservice.exception.DuplicateSkuException;
 import com.nhcarrigan.catalogservice.exception.InsufficientStockException;
@@ -9,7 +10,10 @@ import com.nhcarrigan.catalogservice.repository.ProductRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Business logic for managing {@link Product} entities: enforces SKU
@@ -153,5 +157,59 @@ public class ProductService {
         }
         product.setStockQuantity(newQuantity);
         return productRepository.save(product);
+    }
+
+    /**
+     * Applies multiple stock adjustments as one atomic operation.
+     *
+     * <p>Every adjustment is validated before any stock quantity is changed.
+     * If any product is missing or any adjustment would result in negative
+     * stock, the entire batch is rejected and the transaction is rolled back.
+     *
+     * @param adjustments the stock adjustments to apply
+     * @return the products affected by the batch, in first-seen order
+     * @throws com.nhcarrigan.catalogservice.exception.ProductNotFoundException
+     *         if any product does not exist
+     * @throws com.nhcarrigan.catalogservice.exception.InsufficientStockException
+     *         if any adjustment would result in negative stock
+     */
+    @Transactional
+    public List<Product> bulkAdjustStock(
+            List<BulkStockAdjustmentRequest> adjustments) {
+
+        Map<Long, Product> productsById = new LinkedHashMap<>();
+        Map<Long, Integer> projectedStock = new LinkedHashMap<>();
+
+        // Phase 1: validate the entire batch without changing any product.
+        for (BulkStockAdjustmentRequest adjustment : adjustments) {
+            Long productId = adjustment.productId();
+
+            Product product = productsById.computeIfAbsent(
+                    productId,
+                    this::findById);
+
+            int currentStock = projectedStock.getOrDefault(
+                    productId,
+                    product.getStockQuantity());
+
+            int newQuantity = currentStock + adjustment.delta();
+
+            if (newQuantity < 0) {
+                throw new InsufficientStockException(
+                        productId,
+                        currentStock,
+                        adjustment.delta());
+            }
+
+            projectedStock.put(productId, newQuantity);
+        }
+
+        // Phase 2: apply changes only after the entire batch is valid.
+        for (Map.Entry<Long, Product> entry : productsById.entrySet()) {
+            Product product = entry.getValue();
+            product.setStockQuantity(projectedStock.get(entry.getKey()));
+        }
+
+        return new ArrayList<>(productsById.values());
     }
 }

@@ -1,5 +1,6 @@
 package com.nhcarrigan.catalogservice.service;
 
+import com.nhcarrigan.catalogservice.dto.BulkStockAdjustmentRequest;
 import com.nhcarrigan.catalogservice.dto.ProductRequest;
 import com.nhcarrigan.catalogservice.entity.Product;
 import com.nhcarrigan.catalogservice.exception.DuplicateSkuException;
@@ -13,6 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,6 +34,16 @@ class ProductServiceTest {
     private ProductRepository productRepository;
 
     private Product testProduct;
+
+    private Product createTestProduct(String sku, int stock) {
+        ProductRequest request = new ProductRequest();
+        request.setName("Test Widget");
+        request.setSku(sku);
+        request.setCategory("Test Category");
+        request.setPrice(new BigDecimal("9.99"));
+        request.setStockQuantity(stock);
+        return productService.create(request);
+    }
 
     @BeforeEach
     void setUp() {
@@ -96,5 +108,110 @@ class ProductServiceTest {
     void adjustStockAllowsExactlyZero() {
         Product updated = productService.adjustStock(testProduct.getId(), -10);
         assertThat(updated.getStockQuantity()).isZero();
+    }
+
+    @Test
+    void bulkAdjustStockAppliesAllAdjustments() {
+        Product secondProduct = createTestProduct(
+                "TEST-SKU-" + System.nanoTime(),
+                20);
+
+        List<BulkStockAdjustmentRequest> adjustments = List.of(
+                new BulkStockAdjustmentRequest(testProduct.getId(), 5),
+                new BulkStockAdjustmentRequest(secondProduct.getId(), -4)
+        );
+
+        List<Product> updated = productService.bulkAdjustStock(adjustments);
+
+        assertThat(updated)
+                .extracting(Product::getId)
+                .containsExactly(testProduct.getId(), secondProduct.getId());
+
+        assertThat(productRepository.findById(testProduct.getId()).orElseThrow()
+                .getStockQuantity())
+                .isEqualTo(15);
+
+        assertThat(productRepository.findById(secondProduct.getId()).orElseThrow()
+                .getStockQuantity())
+                .isEqualTo(16);
+    }
+
+    @Test
+    void bulkAdjustStockAllowsExactlyZero() {
+        List<BulkStockAdjustmentRequest> adjustments = List.of(
+                new BulkStockAdjustmentRequest(testProduct.getId(), -10)
+        );
+
+        List<Product> updated = productService.bulkAdjustStock(adjustments);
+
+        assertThat(updated.get(0).getStockQuantity()).isZero();
+    }
+
+    @Test
+    void bulkAdjustStockRejectsNegativeStock() {
+        List<BulkStockAdjustmentRequest> adjustments = List.of(
+                new BulkStockAdjustmentRequest(testProduct.getId(), -11)
+        );
+
+        assertThatThrownBy(() ->
+                productService.bulkAdjustStock(adjustments))
+                .isInstanceOf(InsufficientStockException.class);
+
+        Product reloaded =
+                productRepository.findById(testProduct.getId()).orElseThrow();
+
+        assertThat(reloaded.getStockQuantity()).isEqualTo(10);
+    }
+
+    @Test
+    void bulkAdjustStockRollsBackEntireBatchWhenOneAdjustmentFails() {
+        Product secondProduct = createTestProduct(
+                "TEST-SKU-" + System.nanoTime(),
+                10);
+
+        List<BulkStockAdjustmentRequest> adjustments = List.of(
+                new BulkStockAdjustmentRequest(testProduct.getId(), 5),
+                new BulkStockAdjustmentRequest(secondProduct.getId(), -11)
+        );
+
+        assertThatThrownBy(() ->
+                productService.bulkAdjustStock(adjustments))
+                .isInstanceOf(InsufficientStockException.class);
+
+        Product firstReloaded =
+                productRepository.findById(testProduct.getId()).orElseThrow();
+
+        Product secondReloaded =
+                productRepository.findById(secondProduct.getId()).orElseThrow();
+
+        assertThat(firstReloaded.getStockQuantity()).isEqualTo(10);
+        assertThat(secondReloaded.getStockQuantity()).isEqualTo(10);
+    }
+
+    @Test
+    void bulkAdjustStockRejectsMissingProduct() {
+        List<BulkStockAdjustmentRequest> adjustments = List.of(
+                new BulkStockAdjustmentRequest(-1L, 5)
+        );
+
+        assertThatThrownBy(() ->
+                productService.bulkAdjustStock(adjustments))
+                .isInstanceOf(ProductNotFoundException.class);
+    }
+
+    @Test
+    void bulkAdjustStockAppliesRepeatedAdjustmentsSequentially() {
+        List<BulkStockAdjustmentRequest> adjustments = List.of(
+                new BulkStockAdjustmentRequest(testProduct.getId(), 5),
+                new BulkStockAdjustmentRequest(testProduct.getId(), -3)
+        );
+
+        List<Product> updated = productService.bulkAdjustStock(adjustments);
+
+        assertThat(updated)
+                .hasSize(1)
+                .first()
+                .extracting(Product::getStockQuantity)
+                .isEqualTo(12);
     }
 }

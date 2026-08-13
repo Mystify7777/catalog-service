@@ -3,6 +3,8 @@ package com.nhcarrigan.catalogservice.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nhcarrigan.catalogservice.dto.ProductRequest;
 import com.nhcarrigan.catalogservice.dto.StockAdjustmentRequest;
+import com.nhcarrigan.catalogservice.entity.Product;
+import com.nhcarrigan.catalogservice.repository.ProductRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -13,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -20,7 +23,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import com.nhcarrigan.catalogservice.repository.ProductRepository;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -33,6 +35,9 @@ class ProductControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private ProductRepository productRepository;
+
     private ProductRequest validRequest(String sku) {
         ProductRequest request = new ProductRequest();
         request.setName("Integration Test Product");
@@ -41,6 +46,19 @@ class ProductControllerTest {
         request.setPrice(new BigDecimal("19.99"));
         request.setStockQuantity(20);
         return request;
+    }
+
+    private Product createTestProduct(String sku, int stock) {
+        Product product = new Product(
+                "Bulk Test Product",
+                sku,
+                "Test Category",
+                new BigDecimal("19.99"),
+                stock,
+                "Product created for bulk stock adjustment tests."
+        );
+        
+        return productRepository.save(product);
     }
 
     @Test
@@ -104,8 +122,6 @@ class ProductControllerTest {
                 .andExpect(jsonPath("$", containsInAnyOrder("Electronics", "Office Supplies", "Furniture")));
     }
 
-    @Autowired
-    private ProductRepository productRepository;
 
     @Test
     void getEmptyCategoriesReturnsEmpty() throws Exception{
@@ -196,4 +212,148 @@ class ProductControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.description", is("This is a pilot Description for the product.")));
     }
+
+@Test
+void bulkAdjustStockReturnsUpdatedProducts() throws Exception {
+    Product firstProduct = createTestProduct("BULK-TEST-1", 20);
+    Product secondProduct = createTestProduct("BULK-TEST-2", 10);
+
+    String request = """
+            [
+                {
+                    "productId": %d,
+                    "delta": 5
+                },
+                {
+                    "productId": %d,
+                    "delta": -3
+                }
+            ]
+            """.formatted(firstProduct.getId(), secondProduct.getId());
+
+    mockMvc.perform(patch("/api/products/stock/bulk")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(request))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[0].id", is(firstProduct.getId().intValue())))
+            .andExpect(jsonPath("$[0].stockQuantity", is(25)))
+            .andExpect(jsonPath("$[1].id", is(secondProduct.getId().intValue())))
+            .andExpect(jsonPath("$[1].stockQuantity", is(7)));
+}
+
+@Test
+void bulkAdjustStockRejectsEmptyRequest() throws Exception {
+    mockMvc.perform(patch("/api/products/stock/bulk")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("[]"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error", is("Validation Failed")));
+}
+
+@Test
+void bulkAdjustStockRejectsMissingProductId() throws Exception {
+    String request = """
+            [
+                {
+                    "delta": 5
+                }
+            ]
+            """;
+
+    mockMvc.perform(patch("/api/products/stock/bulk")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(request))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error", is("Validation Failed")));
+}
+
+@Test
+void bulkAdjustStockRejectsMissingDelta() throws Exception {
+    String request = """
+            [
+                {
+                    "productId": 1
+                }
+            ]
+            """;
+
+    mockMvc.perform(patch("/api/products/stock/bulk")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(request))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error", is("Validation Failed")));
+}
+
+@Test
+void bulkAdjustStockReturns422ForInsufficientStock() throws Exception {
+    String request = """
+            [
+                {
+                    "productId": 1,
+                    "delta": -999
+                }
+            ]
+            """;
+
+    mockMvc.perform(patch("/api/products/stock/bulk")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(request))
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.error", is("Unprocessable Entity")));
+}
+
+@Test
+void bulkAdjustStockReturns404ForUnknownProduct() throws Exception {
+    String request = """
+            [
+                {
+                    "productId": 999999,
+                    "delta": 5
+                }
+            ]
+            """;
+
+    mockMvc.perform(patch("/api/products/stock/bulk")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(request))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error", is("Not Found")));
+}
+
+@Test
+void bulkAdjustStockRollsBackEntireBatchWhenOneAdjustmentFails() throws Exception {
+    Product firstProduct = createTestProduct("BULK-ROLLBACK-1", 20);
+    Product secondProduct = createTestProduct("BULK-ROLLBACK-2", 10);
+
+    String request = """
+            [
+                {
+                    "productId": %d,
+                    "delta": 5
+                },
+                {
+                    "productId": %d,
+                    "delta": -11
+                }
+            ]
+            """.formatted(firstProduct.getId(), secondProduct.getId());
+
+    mockMvc.perform(patch("/api/products/stock/bulk")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(request))
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.error", is("Unprocessable Entity")));
+
+    Product firstReloaded =
+            productRepository.findById(firstProduct.getId()).orElseThrow();
+
+    Product secondReloaded =
+            productRepository.findById(secondProduct.getId()).orElseThrow();
+
+    assertThat(firstReloaded.getStockQuantity(), is(20));
+    assertThat(secondReloaded.getStockQuantity(), is(10));
+}
+
+
 }
