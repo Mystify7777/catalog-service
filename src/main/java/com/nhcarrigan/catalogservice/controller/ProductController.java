@@ -1,10 +1,13 @@
 package com.nhcarrigan.catalogservice.controller;
 
 import com.nhcarrigan.catalogservice.dto.ProductRequest;
+import com.nhcarrigan.catalogservice.dto.ProductPageResponse;
 import com.nhcarrigan.catalogservice.dto.StockAdjustmentRequest;
 import com.nhcarrigan.catalogservice.entity.Product;
 import com.nhcarrigan.catalogservice.service.ProductService;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -38,13 +41,15 @@ public class ProductController {
     }
 
     /**
-     * Returns every product in the catalog.
+     * Returns a paginated list of products in the catalog.
      *
-     * @return the full list of products
+     * @param pageable the pagination information (page number, size, sort)
+     * @return a paginated response containing products and pagination metadata
      */
     @GetMapping
-    public List<Product> getAll() {
-        return productService.findAll();
+    public ProductPageResponse getAll(
+            @PageableDefault(size = 20) Pageable pageable) {
+        return ProductPageResponse.from(productService.findAll(pageable));
     }
 
     /**

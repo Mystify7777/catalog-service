@@ -3,6 +3,7 @@ package com.nhcarrigan.catalogservice.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nhcarrigan.catalogservice.dto.ProductRequest;
 import com.nhcarrigan.catalogservice.dto.StockAdjustmentRequest;
+import com.nhcarrigan.catalogservice.repository.ProductRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -20,7 +21,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import com.nhcarrigan.catalogservice.repository.ProductRepository;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -32,6 +32,9 @@ class ProductControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private ProductRepository productRepository;
 
     private ProductRequest validRequest(String sku) {
         ProductRequest request = new ProductRequest();
@@ -103,9 +106,6 @@ class ProductControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", containsInAnyOrder("Electronics", "Office Supplies", "Furniture")));
     }
-
-    @Autowired
-    private ProductRepository productRepository;
 
     @Test
     void getEmptyCategoriesReturnsEmpty() throws Exception{
@@ -195,5 +195,53 @@ class ProductControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.description", is("This is a pilot Description for the product.")));
+    }
+
+    @Test
+    void getProductsReturnsFirstPageWithDefaultSize() throws Exception {
+        mockMvc.perform(get("/api/products"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(7)))
+                .andExpect(jsonPath("$.totalElements", is(7)))
+                .andExpect(jsonPath("$.totalPages", is(1)));
+    }
+
+    @Test
+    void getProductsSupportsPagination() throws Exception {
+        mockMvc.perform(get("/api/products")
+                        .param("page", "0")
+                        .param("size", "2")
+                        .param("sort", "id,asc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].id", is(1)))
+                .andExpect(jsonPath("$.content[1].id", is(2)))
+                .andExpect(jsonPath("$.totalElements", is(7)))
+                .andExpect(jsonPath("$.totalPages", is(4)));
+    }
+
+    @Test
+    void getProductsReturnsSecondPage() throws Exception {
+        mockMvc.perform(get("/api/products")
+                        .param("page", "1")
+                        .param("size", "2")
+                        .param("sort", "id,asc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].id", is(3)))
+                .andExpect(jsonPath("$.content[1].id", is(4)))
+                .andExpect(jsonPath("$.totalElements", is(7)))
+                .andExpect(jsonPath("$.totalPages", is(4)));
+    }
+
+    @Test
+    void getProductsReturnsEmptyContentForOutOfRangePage() throws Exception {
+        mockMvc.perform(get("/api/products")
+                        .param("page", "99")
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", empty()))
+                .andExpect(jsonPath("$.totalElements", is(7)))
+                .andExpect(jsonPath("$.totalPages", is(1)));
     }
 }
