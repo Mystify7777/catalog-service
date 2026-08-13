@@ -122,7 +122,6 @@ class ProductControllerTest {
                 .andExpect(jsonPath("$", containsInAnyOrder("Electronics", "Office Supplies", "Furniture")));
     }
 
-
     @Test
     void getEmptyCategoriesReturnsEmpty() throws Exception{
         productRepository.deleteAll();
@@ -356,4 +355,51 @@ void bulkAdjustStockRollsBackEntireBatchWhenOneAdjustmentFails() throws Exceptio
 }
 
 
+    @Test
+    void getProductsReturnsFirstPageWithDefaultSize() throws Exception {
+        mockMvc.perform(get("/api/products"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(7)))
+                .andExpect(jsonPath("$.totalElements", is(7)))
+                .andExpect(jsonPath("$.totalPages", is(1)));
+    }
+
+    @Test
+    void getProductsSupportsPagination() throws Exception {
+        mockMvc.perform(get("/api/products")
+                        .param("page", "0")
+                        .param("size", "2")
+                        .param("sort", "id,asc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].id", is(1)))
+                .andExpect(jsonPath("$.content[1].id", is(2)))
+                .andExpect(jsonPath("$.totalElements", is(7)))
+                .andExpect(jsonPath("$.totalPages", is(4)));
+    }
+
+    @Test
+    void getProductsReturnsSecondPage() throws Exception {
+        mockMvc.perform(get("/api/products")
+                        .param("page", "1")
+                        .param("size", "2")
+                        .param("sort", "id,asc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].id", is(3)))
+                .andExpect(jsonPath("$.content[1].id", is(4)))
+                .andExpect(jsonPath("$.totalElements", is(7)))
+                .andExpect(jsonPath("$.totalPages", is(4)));
+    }
+
+    @Test
+    void getProductsReturnsEmptyContentForOutOfRangePage() throws Exception {
+        mockMvc.perform(get("/api/products")
+                        .param("page", "99")
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", empty()))
+                .andExpect(jsonPath("$.totalElements", is(7)))
+                .andExpect(jsonPath("$.totalPages", is(1)));
+    }
 }

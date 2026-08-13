@@ -7,6 +7,8 @@ import com.nhcarrigan.catalogservice.exception.DuplicateSkuException;
 import com.nhcarrigan.catalogservice.exception.InsufficientStockException;
 import com.nhcarrigan.catalogservice.exception.ProductNotFoundException;
 import com.nhcarrigan.catalogservice.repository.ProductRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,13 +35,14 @@ public class ProductService {
     }
 
     /**
-     * Returns every product in the catalog.
+     * Returns a page of products from the catalog.
      *
-     * @return the full list of products
+     * @param pageable the pagination information
+     * @return a page containing the requested products and pagination metadata
      */
     @Transactional(readOnly = true)
-    public List<Product> findAll() {
-        return productRepository.findAll();
+    public Page<Product> findAll(Pageable pageable) {
+        return productRepository.findAll(pageable);
     }
 
     /**
