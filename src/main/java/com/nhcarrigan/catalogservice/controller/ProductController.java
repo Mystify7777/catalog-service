@@ -1,6 +1,7 @@
 package com.nhcarrigan.catalogservice.controller;
 
 import com.nhcarrigan.catalogservice.dto.BulkStockAdjustmentRequest;
+import com.nhcarrigan.catalogservice.dto.InventoryValueResponse;
 import com.nhcarrigan.catalogservice.dto.ProductCreationResponse;
 import com.nhcarrigan.catalogservice.dto.ProductPageResponse;
 import com.nhcarrigan.catalogservice.dto.ProductRequest;
@@ -100,6 +101,16 @@ public class ProductController {
   @GetMapping("/categories")
   public List<String> getCategories() {
     return productService.listCategories();
+  }
+
+  /**
+   * Returns the total inventory value and its breakdown by category.
+   *
+   * @return an {@link InventoryValueResponse} containing the total value and category breakdown
+   */
+  @GetMapping("/inventory-value")
+  public InventoryValueResponse getInventoryValue() {
+      return productService.getInventoryValue();
   }
 
   /**

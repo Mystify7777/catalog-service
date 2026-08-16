@@ -74,6 +74,7 @@ Base path: `/api/products`
 | GET    | `/api/products/{id}`     | Get a single product by id                     |
 | GET    | `/api/products/search?name=` | Search products by name (substring, case-insensitive) |
 | GET    | `/api/products/search?category=` | Search products by category (substring, case-insensitive) |
+| GET    | `/api/products/inventory-value` | Get the total inventory value and its breakdown by category. |
 | POST   | `/api/products`          | Create a product                               |
 | PUT    | `/api/products/{id}`     | Replace a product's fields                     |
 | DELETE | `/api/products/{id}`     | Delete a product                               |

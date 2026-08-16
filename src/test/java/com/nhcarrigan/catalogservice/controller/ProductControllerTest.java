@@ -60,6 +60,20 @@ class ProductControllerTest {
     return productRepository.save(product);
   }
 
+  private Product createInventoryValueTestProduct(
+      String name, String sku, String category, String price, int stock) {
+    Product product =
+        new Product(
+            name,
+            sku,
+            category,
+            new BigDecimal(price),
+            stock,
+            "Product created for inventory value tests.");
+
+    return productRepository.save(product);
+  }
+
   @Test
   void createProductReturns201AndBody() throws Exception {
     ProductRequest request = validRequest("CTRL-SKU-" + System.nanoTime());
@@ -216,6 +230,52 @@ class ProductControllerTest {
   }
 
   @Test
+  void getInventoryValueReturnsTotalAndCategoryBreakdown() throws Exception {
+    productRepository.deleteAll();
+
+    createInventoryValueTestProduct(
+        "Keyboard", "INV-VALUE-1", "Electronics", "10.00", 5);
+    createInventoryValueTestProduct(
+        "Mouse", "INV-VALUE-2", "Electronics", "20.00", 3);
+    createInventoryValueTestProduct(
+        "Desk", "INV-VALUE-3", "Furniture", "15.00", 2);
+
+    mockMvc
+        .perform(get("/api/products/inventory-value"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalValue", is(140.0)))
+        .andExpect(jsonPath("$.byCategory.Electronics", is(110.0)))
+        .andExpect(jsonPath("$.byCategory.Furniture", is(30.0)));
+  }
+
+  @Test
+  void getInventoryValueReturnsZeroForEmptyCatalog() throws Exception {
+    productRepository.deleteAll();
+
+    mockMvc
+        .perform(get("/api/products/inventory-value"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalValue", is(0)))
+        .andExpect(jsonPath("$.byCategory", anEmptyMap()));
+  }
+
+  @Test
+  void getInventoryValueIgnoresValueOfZeroStockProducts() throws Exception {
+    productRepository.deleteAll();
+
+    createInventoryValueTestProduct(
+        "Zero Stock Product", "INV-VALUE-ZERO", "Electronics", "100.00", 0);
+    createInventoryValueTestProduct(
+        "In Stock Product", "INV-VALUE-STOCK", "Electronics", "10.00", 5);
+
+    mockMvc
+        .perform(get("/api/products/inventory-value"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalValue", is(50.0)))
+        .andExpect(jsonPath("$.byCategory.Electronics", is(50.0)));
+  }
+
+  @Test
   void deleteProductRemovesIt() throws Exception {
     ProductRequest request = validRequest("CTRL-SKU-" + System.nanoTime());
     String body =
@@ -320,12 +380,12 @@ class ProductControllerTest {
   @Test
   @ExtendWith(OutputCaptureExtension.class)
   void logMethodPathStatusOnProductRoutes(CapturedOutput output) throws Exception {
-    String expectedLogGet = "[GET] /api/products: 200\n";
+    String expectedLogGet = "[GET] /api/products: 200" + System.lineSeparator();
     mockMvc.perform(get("/api/products"));
     assert output.getOut().endsWith(expectedLogGet)
         : "Requests against /api/products should produce logs (GET)";
 
-    String expectedLogPost = "[POST] /api/products: 201\n";
+    String expectedLogPost = "[POST] /api/products: 201" + System.lineSeparator();
     ProductRequest request = validRequest("CTRL-SKU-" + System.nanoTime());
     mockMvc.perform(
         post("/api/products")
