@@ -351,6 +351,81 @@ class ProductControllerTest {
   }
 
   @Test
+  void adjustStockAllowsReducingExactlyToZero() throws Exception {
+    ProductRequest request = validRequest("CTRL-SKU-" + System.nanoTime());
+    request.setStockQuantity(10);
+
+    String body =
+        mockMvc
+            .perform(
+                post("/api/products")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    Long id = objectMapper.readTree(body).get("id").asLong();
+
+    StockAdjustmentRequest adjustment = new StockAdjustmentRequest();
+    adjustment.setDelta(-10);
+
+    mockMvc
+        .perform(
+            patch("/api/products/{id}/stock", id)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(adjustment)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.stockQuantity", is(0)));
+  }
+
+  @Test
+  void sequentialStockAdjustmentsRejectWhenCombinedTheyGoBelowZero() throws Exception {
+    ProductRequest request = validRequest("CTRL-SKU-" + System.nanoTime());
+    request.setStockQuantity(10);
+
+    String body =
+        mockMvc
+            .perform(
+                post("/api/products")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    Long id = objectMapper.readTree(body).get("id").asLong();
+
+    StockAdjustmentRequest firstAdjustment = new StockAdjustmentRequest();
+    firstAdjustment.setDelta(-6);
+
+    mockMvc
+        .perform(
+            patch("/api/products/{id}/stock", id)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(firstAdjustment)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.stockQuantity", is(4)));
+
+    StockAdjustmentRequest secondAdjustment = new StockAdjustmentRequest();
+    secondAdjustment.setDelta(-5);
+
+    mockMvc
+        .perform(
+            patch("/api/products/{id}/stock", id)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(secondAdjustment)))
+        .andExpect(status().isUnprocessableEntity());
+
+    mockMvc
+        .perform(get("/api/products/{id}", id))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.stockQuantity", is(4)));
+  }
+
+  @Test
   void getStockHistoryReturnsAdjustmentHistory() throws Exception {
     ProductRequest request = validRequest("CTRL-SKU-" + System.nanoTime());
     request.setStockQuantity(10);
