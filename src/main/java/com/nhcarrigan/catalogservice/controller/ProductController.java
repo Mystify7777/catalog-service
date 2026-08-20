@@ -15,7 +15,6 @@ import com.nhcarrigan.catalogservice.service.ProductImportService;
 import com.nhcarrigan.catalogservice.service.ProductService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -191,7 +190,7 @@ public class ProductController {
       value = "/import",
       consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   public ResponseEntity<ProductImportResponse> importProducts(
-      @RequestParam("file") MultipartFile file) throws IOException {
+      @RequestParam("file") MultipartFile file) {
     return ResponseEntity.ok(productImportService.importCsv(file));
   }
 

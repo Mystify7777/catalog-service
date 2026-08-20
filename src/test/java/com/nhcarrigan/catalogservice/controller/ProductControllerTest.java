@@ -2,6 +2,8 @@ package com.nhcarrigan.catalogservice.controller;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -11,10 +13,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nhcarrigan.catalogservice.dto.ProductImportError;
+import com.nhcarrigan.catalogservice.dto.ProductImportErrorType;
+import com.nhcarrigan.catalogservice.dto.ProductImportResponse;
 import com.nhcarrigan.catalogservice.dto.ProductRequest;
 import com.nhcarrigan.catalogservice.dto.StockAdjustmentRequest;
 import com.nhcarrigan.catalogservice.entity.Product;
+import com.nhcarrigan.catalogservice.exception.CsvImportException;
 import com.nhcarrigan.catalogservice.repository.ProductRepository;
+import com.nhcarrigan.catalogservice.service.ProductImportService;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -23,12 +31,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -40,6 +50,8 @@ class ProductControllerTest {
   @Autowired private ObjectMapper objectMapper;
 
   @Autowired private ProductRepository productRepository;
+
+  @MockBean private ProductImportService productImportService;
 
   private ProductRequest validRequest(String sku) {
     ProductRequest request = new ProductRequest();
@@ -966,6 +978,12 @@ class ProductControllerTest {
             "text/csv",
             csv.getBytes(StandardCharsets.UTF_8));
 
+    ProductImportResponse response =
+        new ProductImportResponse(1, 0, List.of());
+
+    when(productImportService.importCsv(any(MultipartFile.class)))
+        .thenReturn(response);
+
     mockMvc
         .perform(multipart("/api/products/import").file(file))
         .andExpect(status().isOk())
@@ -996,11 +1014,44 @@ class ProductControllerTest {
             "text/csv",
             csv.getBytes(StandardCharsets.UTF_8));
 
+    ProductImportError error =
+        new ProductImportError(
+            2,
+            ProductImportErrorType.VALIDATION_ERROR,
+            "Name must not be blank");
+
+    ProductImportResponse response =
+        new ProductImportResponse(0, 1, List.of(error));
+
+    when(productImportService.importCsv(any(MultipartFile.class)))
+        .thenReturn(response);
+
     mockMvc
         .perform(multipart("/api/products/import").file(file))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.created", is(0)))
         .andExpect(jsonPath("$.failed", is(1)))
         .andExpect(jsonPath("$.errors", hasSize(1)));
+  }
+
+@Test
+void importProductsReturnsBadRequestWhenCsvCannotBeRead() throws Exception {
+    MockMultipartFile file =
+        new MockMultipartFile(
+            "file",
+            "products.csv",
+            "text/csv",
+            "name,sku,category,price,stockQuantity,description\n"
+                .getBytes(StandardCharsets.UTF_8));
+
+    when(productImportService.importCsv(file))
+        .thenThrow(new CsvImportException("Unable to read CSV file", new IOException()));
+
+    mockMvc
+        .perform(multipart("/api/products/import").file(file))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status", is(400)))
+        .andExpect(jsonPath("$.error", is("Bad Request")))
+        .andExpect(jsonPath("$.message", is("Unable to read CSV file")));
   }
 }

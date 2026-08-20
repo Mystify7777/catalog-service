@@ -1,6 +1,7 @@
 package com.nhcarrigan.catalogservice.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -9,9 +10,11 @@ import com.nhcarrigan.catalogservice.dto.ProductImportErrorType;
 import com.nhcarrigan.catalogservice.dto.ProductImportResponse;
 import com.nhcarrigan.catalogservice.dto.ProductRequest;
 import com.nhcarrigan.catalogservice.entity.Product;
+import com.nhcarrigan.catalogservice.exception.CsvImportException;
 import com.nhcarrigan.catalogservice.exception.DuplicateSkuException;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -284,5 +287,24 @@ class ProductImportServiceTest {
     assertThat(result.created()).isEqualTo(1);
     assertThat(result.failed()).isEqualTo(0);
     assertThat(result.errors()).isEmpty();
+  }
+
+  @Test
+  void wrapsCsvParserIOException() throws Exception {
+    MultipartFile file =
+        new MockMultipartFile(
+            "file",
+            "products.csv",
+            "text/csv",
+            "name,sku,category,price,stockQuantity,description\n".getBytes(StandardCharsets.UTF_8));
+
+    IOException cause = new IOException("Unable to read file");
+
+    when(csvParser.parse(file)).thenThrow(cause);
+
+    assertThatThrownBy(() -> service.importCsv(file))
+        .isInstanceOf(CsvImportException.class)
+        .hasMessage("Unable to read CSV file")
+        .hasCause(cause);
   }
 }

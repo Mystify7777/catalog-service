@@ -5,6 +5,7 @@ import com.nhcarrigan.catalogservice.dto.ProductImportErrorType;
 import com.nhcarrigan.catalogservice.dto.ProductImportResponse;
 import com.nhcarrigan.catalogservice.dto.ProductRequest;
 import com.nhcarrigan.catalogservice.entity.Product;
+import com.nhcarrigan.catalogservice.exception.CsvImportException;
 import com.nhcarrigan.catalogservice.exception.DuplicateSkuException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
@@ -103,15 +104,19 @@ public class ProductImportService {
     return new ProductImportValidationResult(validProducts, errors);
   }
 
-  public ProductImportResponse importCsv(MultipartFile file) throws IOException {
-    List<ProductCsvParser.ParsedProductRow> rows = csvParser.parse(file);
+  public ProductImportResponse importCsv(MultipartFile file) {
+    try {
+      List<ProductCsvParser.ParsedProductRow> rows = csvParser.parse(file);
 
-    ProductImportResult result = importProducts(rows);
+      ProductImportResult result = importProducts(rows);
 
-    return new ProductImportResponse(
-        result.importedProducts().size(),
-        result.errors().size(),
-        result.errors());
+      return new ProductImportResponse(
+          result.importedProducts().size(),
+          result.errors().size(),
+          result.errors());
+    } catch (IOException exception) {
+      throw new CsvImportException("Unable to read CSV file", exception);
+    }
   }
 
   private ProductRequest toProductRequest(ProductCsvParser.ParsedProductRow row) {
