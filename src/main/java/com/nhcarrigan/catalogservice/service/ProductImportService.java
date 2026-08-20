@@ -1,7 +1,10 @@
 package com.nhcarrigan.catalogservice.service;
 
 import com.nhcarrigan.catalogservice.dto.ProductImportError;
+import com.nhcarrigan.catalogservice.dto.ProductImportErrorType;
 import com.nhcarrigan.catalogservice.dto.ProductRequest;
+import com.nhcarrigan.catalogservice.entity.Product;
+import com.nhcarrigan.catalogservice.exception.DuplicateSkuException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import java.math.BigDecimal;
@@ -14,21 +17,54 @@ import org.springframework.stereotype.Service;
 @Service
 public class ProductImportService {
 
-    private final Validator validator;
+  private final ProductService productService;
+  private final Validator validator;
 
-    public ProductImportService(Validator validator) {
-      this.validator = validator;
-    }
+  public ProductImportService(Validator validator, ProductService productService) {
+    this.validator = validator;
+    this.productService = productService;
+  }
 
   /**
-   * Validates the product rows in a parsed CSV import.
+   * Imports valid product rows and collects row-level errors.
    *
-   * <p>This method deliberately does not persist products. Persistence is handled separately so
-   * that parsing, validation, and persistence remain independently testable.
+   * <p>Validation errors are reported without attempting persistence. Valid rows are passed through
+   * {@link ProductService#create(ProductRequest)} so normal product creation rules remain
+   * centralized.
    */
-  public ProductImportValidationResult validateRows(List<ProductCsvParser.ParsedProductRow> rows) {
+  public ProductImportResult importProducts(
+      List<ProductCsvParser.ParsedProductRow> rows) {
+
+    ProductImportValidationResult validationResult = validateRows(rows);
+
+    List<Product> importedProducts = new ArrayList<>();
+    List<ProductImportError> errors = new ArrayList<>(validationResult.errors());
+
+    for (ValidatedProduct validatedProduct : validationResult.validProducts()) {
+      try {
+        importedProducts.add(productService.create(validatedProduct.request()));
+      } catch (DuplicateSkuException exception) {
+        errors.add(
+            new ProductImportError(
+                validatedProduct.rowNumber(),
+                ProductImportErrorType.DUPLICATE_SKU,
+                exception.getMessage()));
+      }
+    }
+
+    return new ProductImportResult(importedProducts, errors);
+  }
+
+  /**
+   * Validates product rows without persisting them.
+   *
+   * <p>Validation errors are collected per row so that valid rows can continue through the import.
+   */
+  public ProductImportValidationResult validateRows(
+      List<ProductCsvParser.ParsedProductRow> rows) {
+
     List<ProductImportError> errors = new ArrayList<>();
-    List<ProductRequest> validRequests = new ArrayList<>();
+    List<ValidatedProduct> validProducts = new ArrayList<>();
     Set<String> seenSkus = new HashSet<>();
 
     for (ProductCsvParser.ParsedProductRow row : rows) {
@@ -37,6 +73,7 @@ public class ProductImportService {
       List<String> rowErrors = validateRequest(request);
 
       String normalizedSku = normalizeSku(request.getSku());
+
       if (rowErrors.isEmpty()
           && normalizedSku != null
           && !seenSkus.add(normalizedSku)) {
@@ -44,13 +81,17 @@ public class ProductImportService {
       }
 
       if (rowErrors.isEmpty()) {
-        validRequests.add(request);
+        validProducts.add(new ValidatedProduct(row.rowNumber(), request));
       } else {
-        errors.add(new ProductImportError(row.rowNumber(), String.join("; ", rowErrors)));
+        errors.add(
+            new ProductImportError(
+                row.rowNumber(),
+                ProductImportErrorType.VALIDATION_ERROR,
+                String.join("; ", rowErrors)));
       }
     }
 
-    return new ProductImportValidationResult(validRequests, errors);
+    return new ProductImportValidationResult(validProducts, errors);
   }
 
   private ProductRequest toProductRequest(ProductCsvParser.ParsedProductRow row) {
@@ -117,6 +158,11 @@ public class ProductImportService {
     return sku.trim().toLowerCase();
   }
 
+  public record ValidatedProduct(int rowNumber, ProductRequest request) {}
+
   public record ProductImportValidationResult(
-      List<ProductRequest> validRequests, List<ProductImportError> errors) {}
+      List<ValidatedProduct> validProducts, List<ProductImportError> errors) {}
+
+  public record ProductImportResult(
+      List<Product> importedProducts, List<ProductImportError> errors) {}
 }
