@@ -2,25 +2,34 @@ package com.nhcarrigan.catalogservice.service;
 
 import com.nhcarrigan.catalogservice.dto.ProductImportError;
 import com.nhcarrigan.catalogservice.dto.ProductImportErrorType;
+import com.nhcarrigan.catalogservice.dto.ProductImportResponse;
 import com.nhcarrigan.catalogservice.dto.ProductRequest;
 import com.nhcarrigan.catalogservice.entity.Product;
 import com.nhcarrigan.catalogservice.exception.DuplicateSkuException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class ProductImportService {
 
+  private final ProductCsvParser csvParser;
   private final ProductService productService;
   private final Validator validator;
 
-  public ProductImportService(Validator validator, ProductService productService) {
+  public ProductImportService(
+      ProductCsvParser csvParser,
+      Validator validator,
+      ProductService productService) {
+    this.csvParser = csvParser;
     this.validator = validator;
     this.productService = productService;
   }
@@ -92,6 +101,17 @@ public class ProductImportService {
     }
 
     return new ProductImportValidationResult(validProducts, errors);
+  }
+
+  public ProductImportResponse importCsv(MultipartFile file) throws IOException {
+    List<ProductCsvParser.ParsedProductRow> rows = csvParser.parse(file);
+
+    ProductImportResult result = importProducts(rows);
+
+    return new ProductImportResponse(
+        result.importedProducts().size(),
+        result.errors().size(),
+        result.errors());
   }
 
   private ProductRequest toProductRequest(ProductCsvParser.ParsedProductRow row) {

@@ -4,6 +4,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -15,6 +16,7 @@ import com.nhcarrigan.catalogservice.dto.StockAdjustmentRequest;
 import com.nhcarrigan.catalogservice.entity.Product;
 import com.nhcarrigan.catalogservice.repository.ProductRepository;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,6 +26,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -930,19 +933,74 @@ class ProductControllerTest {
                     jsonPath("$.stockQuantity", is(original.getStockQuantity())));
   }
 
+    @Test
+    void patchProductNoFields() throws Exception {
+        Product original = productRepository.findById(4L).orElseThrow();
+
+        // convert to deep copy
+        original = objectMapper.readValue(objectMapper.writeValueAsString(original), Product.class);
+
+        mockMvc.perform(patch("/api/products/4").contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+                .andExpectAll(
+                        jsonPath("$.name", is(original.getName())),
+                        jsonPath("$.sku", is(original.getSku())),
+                        jsonPath("$.category", is(original.getCategory())),
+                        jsonPath("$.price", is(original.getPrice().doubleValue())),
+                        jsonPath("$.stockQuantity", is(original.getStockQuantity())),
+                        jsonPath("$.description", is(original.getDescription())));
+    }
+
   @Test
-  void patchProductNoFields() throws Exception {
-    Product original = productRepository.findById(4L).orElseThrow();
-    // convert to deep copy
-    original = objectMapper.readValue(objectMapper.writeValueAsString(original), Product.class);
+  void importProductsAcceptsCsvFile() throws Exception {
+    String csv =
+        """
+        name,sku,category,price,stockQuantity,description
+        Keyboard,SKU-001,Electronics,49.99,10,Mechanical keyboard
+        """;
+
+    MockMultipartFile file =
+        new MockMultipartFile(
+            "file",
+            "products.csv",
+            "text/csv",
+            csv.getBytes(StandardCharsets.UTF_8));
+
     mockMvc
-            .perform(patch("/api/products/4").contentType(MediaType.APPLICATION_JSON).content("{}"))
-            .andExpectAll(
-                    jsonPath("$.name", is(original.getName())),
-                    jsonPath("$.sku", is(original.getSku())),
-                    jsonPath("$.category", is(original.getCategory())),
-                    jsonPath("$.price", is(original.getPrice().doubleValue())),
-                    jsonPath("$.stockQuantity", is(original.getStockQuantity())),
-                    jsonPath("$.description", is(original.getDescription())));
+        .perform(multipart("/api/products/import").file(file))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.created", is(1)))
+        .andExpect(jsonPath("$.failed", is(0)))
+        .andExpect(jsonPath("$.errors", hasSize(0)));
+  }
+
+  @Test
+  void importProductsRequiresFile() throws Exception {
+    mockMvc
+        .perform(multipart("/api/products/import"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void importProductsReturnsValidationErrors() throws Exception {
+    String csv =
+        """
+        name,sku,category,price,stockQuantity,description
+        ,SKU-001,Electronics,49.99,10,Missing name
+        """;
+
+    MockMultipartFile file =
+        new MockMultipartFile(
+            "file",
+            "products.csv",
+            "text/csv",
+            csv.getBytes(StandardCharsets.UTF_8));
+
+    mockMvc
+        .perform(multipart("/api/products/import").file(file))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.created", is(0)))
+        .andExpect(jsonPath("$.failed", is(1)))
+        .andExpect(jsonPath("$.errors", hasSize(1)));
   }
 }

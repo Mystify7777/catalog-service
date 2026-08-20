@@ -6,28 +6,34 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.nhcarrigan.catalogservice.dto.ProductImportErrorType;
+import com.nhcarrigan.catalogservice.dto.ProductImportResponse;
 import com.nhcarrigan.catalogservice.dto.ProductRequest;
 import com.nhcarrigan.catalogservice.entity.Product;
 import com.nhcarrigan.catalogservice.exception.DuplicateSkuException;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.web.multipart.MultipartFile;
 
 class ProductImportServiceTest {
 
   private final Validator validator =
       Validation.buildDefaultValidatorFactory().getValidator();
 
+  private ProductCsvParser csvParser;
   private ProductService productService;
   private ProductImportService service;
 
   @BeforeEach
   void setUp() {
+    csvParser = mock(ProductCsvParser.class);
     productService = mock(ProductService.class);
-    service = new ProductImportService(validator, productService);
+    service = new ProductImportService(csvParser, validator, productService);
   }
 
   @Test
@@ -233,5 +239,50 @@ class ProductImportServiceTest {
               assertThat(error.row()).isEqualTo(2);
               assertThat(error.type()).isEqualTo(ProductImportErrorType.DUPLICATE_SKU);
             });
+  }
+
+  @Test
+  void importsCsvFile() throws Exception {
+    String csv =
+        """
+        name,sku,category,price,stockQuantity,description
+        Keyboard,SKU-001,Electronics,49.99,10,Mechanical keyboard
+        """;
+
+    MultipartFile file =
+        new MockMultipartFile(
+            "file",
+            "products.csv",
+            "text/csv",
+            csv.getBytes(StandardCharsets.UTF_8));
+
+    ProductCsvParser.ParsedProductRow row =
+        new ProductCsvParser.ParsedProductRow(
+            2,
+            "Keyboard",
+            "SKU-001",
+            "Electronics",
+            "49.99",
+            "10",
+            "Mechanical keyboard");
+
+    when(csvParser.parse(file)).thenReturn(List.of(row));
+
+    Product savedProduct =
+        new Product(
+            "Keyboard",
+            "SKU-001",
+            "Electronics",
+            new BigDecimal("49.99"),
+            10,
+            "Mechanical keyboard");
+    when(productService.create(any(ProductRequest.class)))
+        .thenReturn(savedProduct);
+
+    ProductImportResponse result = service.importCsv(file);
+
+    assertThat(result.created()).isEqualTo(1);
+    assertThat(result.failed()).isEqualTo(0);
+    assertThat(result.errors()).isEmpty();
   }
 }
