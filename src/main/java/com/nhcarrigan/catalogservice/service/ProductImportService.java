@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 import org.springframework.stereotype.Service;
@@ -180,7 +181,7 @@ public class ProductImportService {
       return null;
     }
 
-    return sku.trim().toLowerCase();
+    return sku.trim().toUpperCase(Locale.ROOT);
   }
 
   public record ValidatedProduct(int rowNumber, ProductRequest request) {}
