@@ -422,4 +422,16 @@ public class ProductService {
   private String normalizeSku(String sku){
     return sku.toUpperCase(Locale.ROOT);
   }
+
+  /**
+   * Searches for products with a stock quantity at or below a certain threshold, given by user or default.
+   * returns a list of products that meet the criteria.
+   * 
+   * @param threshold the maximum stock quantity for products to include in the result
+   * @return a list of products with a stock quantity at or below the threshold
+   */
+  @Transactional(readOnly = true)
+  public List<Product> searchByStockQuantity(Integer threshold) {
+    return productRepository.findByStockQuantityIsLessThanEqual(threshold);
+  }
 }

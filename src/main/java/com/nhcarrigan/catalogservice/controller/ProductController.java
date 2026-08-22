@@ -151,6 +151,17 @@ public class ProductController {
   }
 
   /**
+   * Returns products with a stock quantity at or below a certain threshold, provided by user or default.
+   *
+   * @param threshold the maximum stock quantity for products to include in the result
+   * @return a list of products with a stock quantity at or below the threshold
+   */
+  @GetMapping("/low-stock")
+  public List<Product> getLowStock(@RequestParam(defaultValue = "5") Integer threshold) {
+    return productService.searchByStockQuantity(threshold);
+  }
+
+  /**
    * Creates a new product.
    *
    * @param request the product fields to create; validated via {@link Valid}

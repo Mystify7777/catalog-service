@@ -1054,4 +1054,21 @@ void importProductsReturnsBadRequestWhenCsvCannotBeRead() throws Exception {
         .andExpect(jsonPath("$.error", is("Bad Request")))
         .andExpect(jsonPath("$.message", is("Unable to read CSV file")));
   }
+
+  @Test
+  void lowStockWithDefaultThresholdReturnsProductsAtOrBelowTheThreshold() throws Exception {
+    Product pilotProduct = createTestProduct("Threshold-5-Test", 5);
+    mockMvc
+        .perform(get("/api/products/low-stock"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$", hasSize(2)));
+  }
+
+  @Test
+  void lowStockWithZeroThresholdReturnsProductsAtZero() throws Exception {
+    mockMvc
+        .perform(get("/api/products/low-stock").param("threshold", "0"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$", hasSize(1)));
+  }
 }
