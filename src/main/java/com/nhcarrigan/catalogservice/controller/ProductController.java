@@ -1,5 +1,6 @@
 package com.nhcarrigan.catalogservice.controller;
 
+import com.nhcarrigan.catalogservice.dto.BulkProductDeleteResponse;
 import com.nhcarrigan.catalogservice.dto.BulkStockAdjustmentRequest;
 import com.nhcarrigan.catalogservice.dto.InventoryValueResponse;
 import com.nhcarrigan.catalogservice.dto.ProductCreationResponse;
@@ -249,6 +250,20 @@ public class ProductController {
   public ResponseEntity<Void> delete(@PathVariable Long id) {
     productService.delete(id);
     return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * Deletes multiple products in a single request.
+   *
+   * <p>Existing product ids are deleted, while ids that do not exist are returned as rejected.
+   *
+   * @param ids the product ids to delete; the list must contain at least one id
+   * @return the ids that were deleted and the ids that were rejected
+   */
+  @DeleteMapping("/bulk")
+  public BulkProductDeleteResponse bulkDelete(
+      @NotEmpty(message = "At least one product ID is required") @RequestBody List<Long> ids) {
+    return productService.bulkDelete(ids);
   }
 
   /**

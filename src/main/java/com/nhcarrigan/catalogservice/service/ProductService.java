@@ -1,5 +1,6 @@
 package com.nhcarrigan.catalogservice.service;
 
+import com.nhcarrigan.catalogservice.dto.BulkProductDeleteResponse;
 import com.nhcarrigan.catalogservice.dto.BulkStockAdjustmentRequest;
 import com.nhcarrigan.catalogservice.dto.InventoryValueResponse;
 import com.nhcarrigan.catalogservice.dto.ProductPatchRequest;
@@ -289,6 +290,35 @@ public class ProductService {
   public void delete(Long id) {
     Product existing = findById(id);
     productRepository.delete(existing);
+  }
+
+  /**
+   * Deletes multiple products in a best-effort operation.
+   *
+   * <p>Existing product ids are deleted, while ids that do not correspond to an existing product are
+   * returned as rejected. A missing product does not prevent other valid products from being deleted.
+   *
+   * @param ids the product ids to delete
+   * @return the ids that were deleted and the ids that were rejected
+   */
+  @Transactional
+  @CacheEvict(
+      cacheNames = {"products", "product"},
+      allEntries = true)
+  public BulkProductDeleteResponse bulkDelete(List<Long> ids) {
+    List<Long> deleted = new ArrayList<>();
+    List<Long> rejected = new ArrayList<>();
+
+    for (Long id : ids) {
+      if (productRepository.existsById(id)) {
+        productRepository.deleteById(id);
+        deleted.add(id);
+      } else {
+        rejected.add(id);
+      }
+    }
+
+    return new BulkProductDeleteResponse(deleted, rejected);
   }
 
   /**
